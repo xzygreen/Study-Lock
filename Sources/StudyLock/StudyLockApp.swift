@@ -7,16 +7,14 @@ struct StudyLockApp: App {
     @StateObject private var engine = FocusEngine()
 
     var body: some Scene {
-        WindowGroup {
+        Window("认真", id: MainWindowRegistration.sceneID) {
             RootView()
                 .environmentObject(engine)
                 .frame(minWidth: 980, minHeight: 680)
+                .background(MainWindowRegistration(appDelegate: appDelegate))
                 .onAppear {
                     appDelegate.attach(engine: engine)
                     NSApp.applicationIconImage = AppIcon.image
-                    DispatchQueue.main.async {
-                        appDelegate.registerMainWindow(NSApp.keyWindow)
-                    }
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -29,10 +27,50 @@ struct StudyLockApp: App {
     }
 }
 
+/// 从主界面自己的视图获取窗口,避免把弹出面板或确认框误认成主窗口。
+/// 保留 SwiftUI 的 openWindow 动作,窗口关闭并被释放后仍能重建同一个场景。
+private struct MainWindowRegistration: NSViewRepresentable {
+    static let sceneID = "main"
+
+    let appDelegate: AppDelegate
+    @Environment(\.openWindow) private var openWindow
+
+    func makeNSView(context: Context) -> WindowObserverView {
+        let view = WindowObserverView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ view: WindowObserverView, context: Context) {
+        view.onWindowAvailable = { [weak appDelegate, openWindow] window in
+            appDelegate?.registerMainWindow(window) {
+                openWindow(id: Self.sceneID)
+            }
+        }
+        view.registerWindowIfAvailable()
+    }
+
+    final class WindowObserverView: NSView {
+        var onWindowAvailable: ((NSWindow) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            registerWindowIfAvailable()
+        }
+
+        func registerWindowIfAvailable() {
+            if let window {
+                onWindowAvailable?(window)
+            }
+        }
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var engine: FocusEngine?
     private weak var mainWindow: NSWindow?
+    private var reopenMainWindow: (() -> Void)?
     private var statusItem: StatusItemController?
 
     /// 主窗口首次出现时接上引擎并建菜单栏项(只做一次)。
@@ -41,22 +79,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         self.engine = engine
-        statusItem = StatusItemController(engine: engine)
+        statusItem = StatusItemController(engine: engine, onOpenMainWindow: { [weak self] in
+            self?.showMainWindow()
+        })
     }
 
-    func registerMainWindow(_ window: NSWindow?) {
-        guard let window else { return }
+    func registerMainWindow(_ window: NSWindow, reopen: @escaping () -> Void) {
         mainWindow = window
-        window.isReleasedWhenClosed = false
+        reopenMainWindow = reopen
     }
 
-    private func showMainWindow() {
-        let window = mainWindow ?? NSApp.windows.first { !($0 is NSPanel) }
-        if let window {
+    func showMainWindow() {
+        if let window = mainWindow, window.isVisible || window.isMiniaturized {
             if window.isMiniaturized { window.deminiaturize(nil) }
             window.makeKeyAndOrderFront(nil)
+        } else {
+            // 关闭后由 SwiftUI 重建内容,不强行复用已退出场景的 NSWindow。
+            // Window(id:) 是单窗口场景,反复点击不会创建多个主窗口。
+            reopenMainWindow?()
         }
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // 即使菜单栏面板可见,也必须恢复主窗口,不能依赖 hasVisibleWindows。
+        showMainWindow()
+        return false
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

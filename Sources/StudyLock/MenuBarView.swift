@@ -1,7 +1,7 @@
-import AppKit
 import SwiftUI
 
 struct MenuBarView: View {
+    var onOpenMainWindow: () -> Void
     /// 点「打开主窗口」后关掉这个面板;默认空实现,方便预览与测试。
     var onDismiss: () -> Void = {}
 
@@ -84,7 +84,8 @@ struct MenuBarView: View {
             Divider()
 
             Button {
-                openMainWindow()
+                onDismiss()
+                onOpenMainWindow()
             } label: {
                 Label("打开主窗口", systemImage: "macwindow")
                     .font(.system(size: 12, weight: .medium))
@@ -129,13 +130,5 @@ struct MenuBarView: View {
             return "本次已专注 \(focused)"
         }
         return "\(session.title) · 已专注 \(focused)"
-    }
-
-    private func openMainWindow() {
-        onDismiss()
-        NSApp.activate(ignoringOtherApps: true)
-        for window in NSApp.windows where window.canBecomeMain {
-            window.makeKeyAndOrderFront(nil)
-        }
     }
 }

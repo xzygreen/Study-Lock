@@ -25,15 +25,18 @@ final class StatusItemController {
     private let popover = NSPopover()
     private var currentTitle: String?
 
-    init(engine: FocusEngine) {
+    init(engine: FocusEngine, onOpenMainWindow: @escaping () -> Void) {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         popover.behavior = .transient
         popover.animates = false
         popover.contentViewController = NSHostingController(
-            rootView: MenuBarView(onDismiss: { [weak popover] in
-                popover?.performClose(nil)
-            })
+            rootView: MenuBarView(
+                onOpenMainWindow: onOpenMainWindow,
+                onDismiss: { [weak popover] in
+                    popover?.performClose(nil)
+                }
+            )
             .environmentObject(engine)
         )
 
